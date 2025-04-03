@@ -1,8 +1,9 @@
 from zhipuai import ZhipuAI
 from config import API_KEY
+import os
 
 # 初始化客户端
-client = ZhipuAI(api_key=API_KEY)
+client = ZhipuAI(api_key="1ff92264a5ac41ac9579c1e2fa2ffc7a.Dv5xnTJuHLj4oYX8")
 
 def call_llm_api(messages, tools=None):
     """
@@ -16,15 +17,18 @@ def call_llm_api(messages, tools=None):
         API响应对象
     """
     try:
+        # 从环境变量获取模型名称，默认为glm-4
+        model_name = os.getenv("ZHIPU_MODEL_NAME", "glm-4-plus")
+        
         if tools:
             response = client.chat.completions.create(
-                model="glm-4",
+                model=model_name,
                 messages=messages,
                 tools=tools
             )
         else:
             response = client.chat.completions.create(
-                model="glm-4",
+                model=model_name,
                 messages=messages
             )
         

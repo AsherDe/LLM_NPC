@@ -4,7 +4,7 @@ from config import ACTIVE_HOURS_MIN, ACTIVE_HOURS_MAX, DEFAULT_SLEEP_START, DEFA
 from llm_interface import call_llm_api
 
 class AIAgent:
-    def __init__(self, agent_id, name, role, memories, behaviors, topics_of_interest, system_prompt, night_owl=False):
+    def __init__(self, agent_id, name, role, memories, behaviors, topics_of_interest, system_prompt, night_owl=False, speaking_style=None, background=None):
         self.agent_id = agent_id
         self.name = name
         self.role = role
@@ -13,7 +13,12 @@ class AIAgent:
         self.behaviors = behaviors
         self.topics_of_interest = topics_of_interest
         self.system_prompt = system_prompt
+        self.speaking_style = speaking_style or ""
+        self.background = background or ""
         self.night_owl = night_owl
+        
+        # 测试模式设置
+        self.force_active = False  # 是否强制角色始终保持活跃状态
         
         # 根据夜猫子状态设置睡眠时间
         if night_owl:
@@ -55,6 +60,10 @@ class AIAgent:
     
     def is_active(self, current_hour=None):
         """检查角色在当前时间是否活跃"""
+        # 如果强制活跃，始终返回True
+        if self.force_active:
+            return True
+            
         if current_hour is None:
             current_hour = datetime.datetime.now().hour
             
@@ -62,6 +71,10 @@ class AIAgent:
     
     def is_asleep(self, current_hour=None):
         """检查角色在当前时间是否处于睡眠状态"""
+        # 如果强制活跃，始终返回False（不睡觉）
+        if self.force_active:
+            return False
+            
         if current_hour is None:
             current_hour = datetime.datetime.now().hour
             
@@ -69,6 +82,11 @@ class AIAgent:
             return self.sleep_start <= current_hour < self.sleep_end
         else:  # 处理跨夜的睡眠时间
             return current_hour >= self.sleep_start or current_hour < self.sleep_end
+    
+    def set_force_active(self, state):
+        """设置角色是否强制活跃"""
+        self.force_active = state
+        return self.force_active
     
     def create_post(self, community, prompt=None, web_search=False):
         """在社区中创建新帖子"""
@@ -91,6 +109,14 @@ class AIAgent:
         # 仅包含一部分记忆作为上下文
         for memory in self.memories[-5:]:
             context += f"- {memory}\n"
+        
+        # 添加背景信息（如果有）
+        if self.background:
+            context += f"\n你的背景：\n{self.background}\n"
+            
+        # 添加说话风格指导（如果有）
+        if self.speaking_style:
+            context += f"\n你的说话风格：\n{self.speaking_style}\n请始终保持这种风格说话。\n"
         
         messages[1]["content"] += context
         
@@ -132,7 +158,7 @@ class AIAgent:
         
         # 使用角色的系统提示指导评论生成
         if prompt is None:
-            prompt = f"对这个帖子写一个有思考深度的评论: \"{post['content']}\""
+            prompt = f"对这个帖子写一个有思考深度且简短的评论: \"{post['content']}\""
         
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -144,6 +170,14 @@ class AIAgent:
         # 仅包含一部分记忆作为上下文
         for memory in self.memories[-5:]:
             context += f"- {memory}\n"
+        
+        # 添加背景信息（如果有）
+        if self.background:
+            context += f"\n你的背景：\n{self.background}\n"
+            
+        # 添加说话风格指导（如果有）
+        if self.speaking_style:
+            context += f"\n你的说话风格：\n{self.speaking_style}\n请始终保持这种风格说话。\n"
         
         messages[1]["content"] += context
         
@@ -196,6 +230,12 @@ class AIAgent:
             {"role": "user", "content": prompt}
         ]
         
+        # 添加背景信息和说话风格（如果有）
+        if self.background:
+            messages[1]["content"] += f"\n你的背景：\n{self.background}\n"
+        
+        # 梦境中的思考不需要强调说话风格，让思维更自由流动
+        
         tools = [{
             "type": "web_search",
             "web_search": {
@@ -240,7 +280,9 @@ class AIAgent:
         """返回角色的当前状态"""
         current_hour = datetime.datetime.now().hour
         
-        if self.is_asleep(current_hour):
+        if self.force_active:
+            return f"{self.name}当前处于强制活跃状态。"
+        elif self.is_asleep(current_hour):
             return f"{self.name}当前正在睡觉。(睡眠时间: {self.sleep_start}-{self.sleep_end})"
         elif self.is_active(current_hour):
             return f"{self.name}当前处于活跃状态。"

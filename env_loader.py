@@ -10,6 +10,11 @@ def get_api_key():
     if not api_key:
         raise ValueError("API密钥未设置。请在.env文件中设置ZHIPU_API_KEY。")
     return api_key
+    
+# 获取模型名称
+def get_model_name():
+    """获取使用的模型名称"""
+    return os.getenv("ZHIPU_MODEL_NAME", "glm-4-flash")  # 默认使用 GLM-4-flash
 
 # 获取系统配置
 def get_system_config():

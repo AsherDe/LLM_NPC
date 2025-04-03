@@ -4,14 +4,16 @@ import threading
 import datetime
 from utils import log_to_file, print_color
 
+
 class Scheduler:
     """管理AI角色的任务调度"""
     
-    def __init__(self, agents, community, memory_system, interaction_tracker):
+    def __init__(self, agents, community, memory_system, interaction_tracker, behavior_system=None):
         self.agents = agents  # {agent_id: agent_object}
         self.community = community
         self.memory_system = memory_system
         self.interaction_tracker = interaction_tracker
+        self.behavior_system = behavior_system
         self.running = False
         self.scheduler_thread = None
         
@@ -81,12 +83,12 @@ class Scheduler:
         """检查哪些角色正在入睡或醒来"""
         for agent_id, agent in self.agents.items():
             # 检查是否刚开始睡觉
-            if agent.sleep_start == current_hour:
+            if agent.sleep_start == current_hour and not agent.force_active:
                 print_color(f"{agent.name} 开始睡觉", "cyan")
                 log_to_file(f"{agent.name} 开始睡觉")
             
             # 检查是否刚醒来
-            if agent.sleep_end == current_hour:
+            if agent.sleep_end == current_hour and not agent.force_active:
                 print_color(f"{agent.name} 正在醒来", "cyan")
                 log_to_file(f"{agent.name} 正在醒来")
                 
@@ -128,11 +130,25 @@ class Scheduler:
         """调度创建帖子的任务"""
         print_color(f"调度 {agent.name} 创建帖子", "magenta")
         
+        # 使用行为系统决定是否应该创建帖子
+        should_post = True
+        if self.behavior_system and not agent.force_active:
+            should_post = self.behavior_system.should_create_post(agent, self.community)
+            
+        if not should_post:
+            print_color(f"{agent.name} 决定现在不发帖", "yellow")
+            return
+            
         # 随机决定是否使用网络搜索
         use_web_search = random.random() < 0.5
         
+        # 选择发帖话题
+        prompt = None
+        if self.behavior_system:
+            prompt = self.behavior_system.select_post_topic(agent)
+        
         # 创建帖子
-        post_id = agent.create_post(self.community, web_search=use_web_search)
+        post_id = agent.create_post(self.community, prompt, web_search=use_web_search)
         
         if post_id:
             log_to_file(f"{agent.name} 创建了一个新帖子 (ID: {post_id})")
@@ -147,9 +163,24 @@ class Scheduler:
         
         if not posts:
             return  # 没有可评论的帖子
-        
-        # 随机选择一个帖子
-        post = random.choice(posts)
+            
+        # 筛选可能感兴趣的帖子
+        interesting_posts = []
+        for post in posts:
+            # 使用行为系统判断是否应该评论
+            should_comment = True
+            if self.behavior_system and not agent.force_active:
+                should_comment = self.behavior_system.should_comment_on_post(agent, post, self.community)
+                
+            if should_comment:
+                interesting_posts.append(post)
+                
+        if not interesting_posts:
+            print_color(f"{agent.name} 没有找到感兴趣的帖子评论", "yellow")
+            return
+            
+        # 从感兴趣的帖子中选择一个
+        post = random.choice(interesting_posts)
         
         print_color(f"调度 {agent.name} 评论 {post['author_name']} 的帖子", "magenta")
         

@@ -54,7 +54,9 @@ class MemorySystem:
             "inspirations": agent.inspirations,
             "active_hours": agent.active_hours,
             "sleep_start": agent.sleep_start,
-            "sleep_end": agent.sleep_end
+            "sleep_end": agent.sleep_end,
+            "speaking_style": getattr(agent, "speaking_style", ""),  # 添加说话风格
+            "background": getattr(agent, "background", "")  # 添加背景信息
         }
         
         with open(filename, 'w', encoding='utf-8') as f:

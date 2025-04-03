@@ -9,6 +9,8 @@ from community import Community
 from post_analyzer import PostAnalyzer
 from interaction_tracker import InteractionTracker
 from scheduler import Scheduler
+from ai_behavior import AIBehaviorSystem
+from monitor import Monitor, hook_monitor_to_scheduler
 from utils import print_color, ensure_directory
 
 def create_agents():
@@ -24,7 +26,9 @@ def create_agents():
             behaviors=personality["behaviors"],
             topics_of_interest=personality["topics_of_interest"],
             system_prompt=personality["system_prompt"],
-            night_owl=personality.get("night_owl", False)
+            night_owl=personality.get("night_owl", False),
+            speaking_style=personality.get("speaking_style", ""),  # 添加说话风格
+            background=personality.get("background", "")  # 添加背景信息
         )
         agents[agent_id] = agent
         
@@ -52,9 +56,10 @@ def run_manual_mode(agents, community, memory_system, post_analyzer, interaction
         print("9. 停止自动调度器")
         print("10. 分析帖子")
         print("11. 查看角色互动统计")
-        print("12. 退出")
+        print("12. 设置所有角色强制活跃状态")
+        print("13. 退出")
         
-        choice = input("\n输入选择 (1-12): ").strip()
+        choice = input("\n输入选择 (1-13): ").strip()
         
         if choice == "1":
             # 触发角色发帖
@@ -296,6 +301,36 @@ def run_manual_mode(agents, community, memory_system, post_analyzer, interaction
                         print(f"    - {other_name}: {count}次")
             
         elif choice == "12":
+            # 设置所有角色强制活跃状态
+            current_state = next(iter(agents.values())).force_active if agents else False
+            new_state = not current_state
+            
+            state_text = "活跃" if new_state else "正常"
+            confirm = input(f"确认将所有角色设置为{state_text}状态? (y/n): ").strip().lower() == 'y'
+            
+            if confirm:
+                for agent_id, agent in agents.items():
+                    agent.set_force_active(new_state)
+                
+                if new_state:
+                    print_color("所有角色已设置为强制活跃状态，现在他们将始终保持活跃，方便测试", "green")
+                    print("在这种状态下，角色将不受活跃时间和睡眠时间的限制")
+                else:
+                    print_color("所有角色已恢复正常状态，他们将按自己的活跃时间表行动", "yellow")
+                    print(f"当前时间: {datetime.datetime.now().hour}点")
+                    
+                    # 显示当前时间哪些角色活跃
+                    current_hour = datetime.datetime.now().hour
+                    print("\n当前各角色状态:")
+                    for agent_id, agent in agents.items():
+                        if agent.is_active(current_hour):
+                            print(f"- {agent.name}: 活跃")
+                        elif agent.is_asleep(current_hour):
+                            print(f"- {agent.name}: 睡眠中")
+                        else:
+                            print(f"- {agent.name}: 不在线")
+            
+        elif choice == "13":
             # 退出
             print("正在退出模拟。保存所有数据...")
             scheduler.stop()  # 确保调度器已停止
@@ -312,6 +347,7 @@ def main():
     parser = argparse.ArgumentParser(description='AI社区MVP模拟')
     parser.add_argument('--auto', action='store_true', help='以自动模式而非手动测试模式运行')
     parser.add_argument('--timescale', type=int, default=60, help='每个真实分钟代表多少模拟分钟')
+    parser.add_argument('--monitor', action='store_true', help='启动监控界面（自动模式下默认启动）')
     args = parser.parse_args()
     
     # 获取环境变量
@@ -327,29 +363,46 @@ def main():
     community = Community(storage_dirs["COMMUNITY_STORAGE_DIR"])
     post_analyzer = PostAnalyzer()
     interaction_tracker = InteractionTracker("interaction_data")
+    behavior_system = AIBehaviorSystem()
     
     # 创建所有角色
     agents = create_agents()
     
     # 创建调度器
-    scheduler = Scheduler(agents, community, memory_system, interaction_tracker)
+    scheduler = Scheduler(agents, community, memory_system, interaction_tracker, behavior_system)
+    
+    # 创建监控器（但不立即启动）
+    monitor = Monitor(agents, community, scheduler)
+    # 连接监控器与调度器
+    hook_monitor_to_scheduler(scheduler, monitor)
     
     # 运行模拟
     if args.auto:
         print_color("以自动模式启动...", "green")
+        
+        # 在自动模式下默认启动监控界面
+        if args.monitor or True:  # 总是启动监控
+            monitor.start()
+            
         scheduler.start(args.timescale)
         
         try:
+            # 主线程不退出，让调度器和监控器在后台运行
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\n接收到中断。正在保存数据并退出...")
             scheduler.stop()
+            monitor.stop()
             
             for agent_id, agent in agents.items():
                 memory_system.save_agent_state(agent)
             community.save_data()
     else:
+        # 在手动模式下，可以选择是否启动监控界面
+        if args.monitor:
+            monitor.start()
+            
         run_manual_mode(agents, community, memory_system, post_analyzer, interaction_tracker, scheduler)
 
 if __name__ == "__main__":
